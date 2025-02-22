@@ -1,0 +1,68 @@
+import os
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+import aiohttp  # استفاده از کتابخانه ناهمگام (async) برای درخواست‌های HTTP
+from typing import Optional
+
+# تنظیمات از طریق متغیرهای محیطی (امن‌تر)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "توکن_ربات_تلگرام")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "کلید_API_دیپ_سیک")
+DEEPSEEK_ENDPOINT = os.getenv("DEEPSEEK_ENDPOINT", "https://api.deepseek.ai/v1/chat/completions")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_input = update.message.text
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                "Authorization": f"Bearer {DEEPSEEK_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": "شما یک مشاور تحصیلی هستید. به زبان فارسی پاسخ دهید."},
+                    {"role": "user", "content": user_input}
+                ],
+                "temperature": 0.7,  # کنترل خلاقیت پاسخ
+                "max_tokens": 500     # محدودیت طول پاسخ
+            }
+            
+            async with session.post(
+                DEEPSEEK_ENDPOINT,
+                headers=headers,
+                json=payload,
+                timeout=10  # محدودیت زمانی برای جلوگیری از انتظار طولانی
+            ) as response:
+                
+                if response.status != 200:
+                    raise Exception(f"خطای API: کد وضعیت {response.status}")
+                    
+                data = await response.json()
+                
+                # بررسی ساختار پاسخ
+                if not data.get('choices'):
+                    raise Exception("ساختار پاسخ نامعتبر است")
+                    
+                answer = data['choices'][0]['message'].get('content', 'پاسخی دریافت نشد')
+                
+                await update.message.reply_text(answer[:4096])  # محدودیت طول پیام تلگرام
+
+    except Exception as e:
+        error_message = f"⚠️ خطا: {str(e)}"
+        await update.message.reply_text(error_message)
+
+def main():
+    # ایجاد نمونه برنامه
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # افزودن هندلر برای پیام‌های متنی
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # اجرای ربات
+    print("ربات در حال اجراست...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
